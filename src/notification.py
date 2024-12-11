@@ -9,7 +9,22 @@ class NotificationHandler:
     def __init__(self):
         self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         self.chat_id = os.getenv('TELEGRAM_CHAT_ID')
-        self.bot = telegram.Bot(token=self.bot_token) if self.bot_token else None
+        
+        print(f"Initializing NotificationHandler:")
+        print(f"Bot token exists: {bool(self.bot_token)}")
+        print(f"Chat ID exists: {bool(self.chat_id)}")
+        
+        if not self.bot_token or not self.chat_id:
+            print("WARNING: Missing Telegram credentials!")
+            self.bot = None
+        else:
+            try:
+                self.bot = telegram.Bot(token=self.bot_token)
+                print("Successfully created Telegram bot instance")
+            except Exception as e:
+                print(f"Failed to create Telegram bot: {str(e)}")
+                self.bot = None
+                
         self.history_file = Path('opportunity_history.json')
         self.load_history()
 
