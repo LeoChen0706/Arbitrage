@@ -2,8 +2,8 @@ name: Crypto Arbitrage Monitor
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Runs every 15 minutes
-  workflow_dispatch:  # Allows manual trigger
+    - cron: '*/15 * * * *'  # Run every 15 minutes
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   check-arbitrage:
@@ -20,21 +20,4 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    
-    - name: Create config directory
-      run: |
-        mkdir -p config
-        echo "[Bitget]" > config/config.ini
-        echo "api_key=${{ secrets.BITGET_API_KEY }}" >> config/config.ini
-        echo "secret_key=${{ secrets.BITGET_SECRET_KEY }}" >> config/config.ini
-        echo "passphrase=${{ secrets.BITGET_PASSPHRASE }}" >> config/config.ini
-        echo "[MEXC]" >> config/config.ini
-        echo "api_key=${{ secrets.MEXC_API_KEY }}" >> config/config.ini
-        echo "secret_key=${{ secrets.MEXC_SECRET_KEY }}" >> config/config.ini
-        
-    - name: Run arbitrage scanner
-      env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      run: python -m src.trading
+        pip install ccxt pandas python-telegram-bot numpy
