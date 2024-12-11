@@ -11,6 +11,7 @@ from datetime import datetime
 import numpy as np
 from .notification import NotificationHandler
 
+
 def load_config():
     """Load configuration from config file"""
     config = configparser.ConfigParser()
@@ -19,6 +20,7 @@ def load_config():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
     config.read(config_path)
     return config
+
 
 def setup_logging():
     """Setup logging configuration"""
@@ -33,35 +35,8 @@ def setup_logging():
     )
     return logging.getLogger(__name__)
 
-class EnhancedTrading:
-    def setup_exchanges(self):
-        """Setup exchange connections"""
-        try:
-            bitget_config = {
-                'apiKey': self.config['Bitget']['api_key'],
-                'secret': self.config['Bitget']['secret_key'],
-                'password': self.config['Bitget'].get('passphrase', ''),
-                'enableRateLimit': True,
-                'options': {'defaultType': 'spot'}
-            }
-            self.exchange1 = ccxt.bitget(bitget_config)
-            
-            mexc_config = {
-                'apiKey': self.config['MEXC']['api_key'],
-                'secret': self.config['MEXC']['secret_key'],
-                'enableRateLimit': True,
-                'options': {'defaultType': 'spot'}
-            }
-            self.exchange2 = ccxt.mexc(mexc_config)
-            
-            self.exchange1.load_markets()
-            self.exchange2.load_markets()
-            self.logger.info("Exchange connections successful")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to connect to exchanges: {str(e)}")
-            raise
 
+class EnhancedTrading:
     def __init__(self):
         self.logger = setup_logging()
         print("Starting program...")
@@ -99,8 +74,38 @@ class EnhancedTrading:
         self.notification_handler.send_opportunity(test_message)
         print("Test notification sent")
 
-        def get_token_info(self, exchange: ccxt.Exchange, symbol: str) -> Optional[Dict]:
-        """Get token details including contract address and supported networks"""
+    def setup_exchanges(self):
+        """Setup exchange connections"""
+        try:
+            bitget_config = {
+                'apiKey': self.config['Bitget']['api_key'],
+                'secret': self.config['Bitget']['secret_key'],
+                'password': self.config['Bitget'].get('passphrase', ''),
+                'enableRateLimit': True,
+                'options': {'defaultType': 'spot'}
+            }
+            self.exchange1 = ccxt.bitget(bitget_config)
+            
+            mexc_config = {
+                'apiKey': self.config['MEXC']['api_key'],
+                'secret': self.config['MEXC']['secret_key'],
+                'enableRateLimit': True,
+                'options': {'defaultType': 'spot'}
+            }
+            self.exchange2 = ccxt.mexc(mexc_config)
+            
+            self.exchange1.load_markets()
+            self.exchange2.load_markets()
+            self.logger.info("Exchange connections successful")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to connect to exchanges: {str(e)}")
+            raise
+
+    def get_token_info(self, exchange: ccxt.Exchange, symbol: str) -> Optional[Dict]:
+        """
+        Get token details including contract address and supported networks
+        """
         try:
             # Check cache first
             cache_key = f"{exchange.id}_{symbol}"
@@ -156,7 +161,9 @@ class EnhancedTrading:
             return None
 
     def get_market_data(self, exchange: ccxt.Exchange, symbol: str) -> Tuple[Dict, Dict, float]:
-        """Get market data including orderbook, ticker, and liquidity score"""
+        """
+        Get market data including orderbook, ticker, and liquidity score
+        """
         try:
             orderbook = exchange.fetch_order_book(symbol, 20)
             ticker = exchange.fetch_ticker(symbol)
@@ -171,7 +178,9 @@ class EnhancedTrading:
             return None, None, 0
 
     def find_arbitrage_opportunities(self) -> None:
-        """Find and notify about arbitrage opportunities"""
+        """
+        Find and notify about arbitrage opportunities
+        """
         try:
             self.logger.info("Starting arbitrage search...")
             
@@ -218,7 +227,7 @@ class EnhancedTrading:
                             if best_spread >= 0.5:  # 0.5% minimum spread
                                 self.notification_handler.send_opportunity(opp)
                     
-                    time.sleep(exchange.rateLimit / 1000)
+                    time.sleep(1)  # Rate limiting
                     
                 except Exception as e:
                     self.logger.error(f"Error processing {symbol}: {str(e)}")
@@ -233,6 +242,7 @@ class EnhancedTrading:
             self.logger.error(f"Error in arbitrage search: {str(e)}")
             raise
 
+
 def main():
     try:
         trader = EnhancedTrading()
@@ -240,6 +250,7 @@ def main():
     except Exception as e:
         print(f"Program execution failed: {str(e)}")
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()
