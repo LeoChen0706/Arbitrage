@@ -1,6 +1,40 @@
+import ccxt
+import time
+import logging
+from pathlib import Path
+import configparser
+from typing import List, Dict, Tuple, Optional
+import pandas as pd
+from datetime import datetime
+import numpy as np
 import telegram
 import asyncio
-from typing import List, Dict
+import os
+
+def setup_logging():
+    """Setup logging configuration"""
+    # Create logs directory if it doesn't exist
+    os.makedirs("logs", exist_ok=True)
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler("logs/trading.log"),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
+
+def load_config():
+    """Load configuration from config.ini file"""
+    config = configparser.ConfigParser()
+    config_path = 'config/config.ini'
+    if not Path(config_path).exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    config.read(config_path)
+    return config
 
 class TelegramNotifier:
     def __init__(self, bot_token: str, chat_id: str):
@@ -39,7 +73,7 @@ class EnhancedTrading:
         self.volume_threshold = 10000
         self.depth_threshold = 1000
         self.min_liquidity_score = 7
-        self.min_spread_threshold = 0.5  # Minimum spread percentage to trigger notification
+        self.min_spread_threshold = 0.5
         
     def setup_notifier(self):
         try:
@@ -50,6 +84,35 @@ class EnhancedTrading:
         except Exception as e:
             self.logger.error(f"Telegram notifier setup failed: {str(e)}")
             self.notifier = None
+
+    def setup_exchanges(self):
+        try:
+            bitget_config = {
+                'apiKey': self.config['Bitget']['api_key'],
+                'secret': self.config['Bitget']['secret_key'],
+                'password': self.config['Bitget'].get('passphrase', ''),
+                'enableRateLimit': True,
+                'options': {'defaultType': 'spot'}
+            }
+            self.exchange1 = ccxt.bitget(bitget_config)
+            
+            mexc_config = {
+                'apiKey': self.config['MEXC']['api_key'],
+                'secret': self.config['MEXC']['secret_key'],
+                'enableRateLimit': True,
+                'options': {'defaultType': 'spot'}
+            }
+            self.exchange2 = ccxt.mexc(mexc_config)
+            
+            self.exchange1.load_markets()
+            self.exchange2.load_markets()
+            self.logger.info("Exchanges connected successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Exchange connection failed: {str(e)}")
+            raise
+
+    # ... [rest of your existing EnhancedTrading class code] ...
 
     async def notify_opportunities(self, opportunities: List[Dict]):
         if not self.notifier or not opportunities:
