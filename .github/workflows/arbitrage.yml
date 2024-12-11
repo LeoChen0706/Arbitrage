@@ -33,6 +33,14 @@ jobs:
         echo "api_key=${{ secrets.MEXC_API_KEY }}" >> config/config.ini
         echo "secret_key=${{ secrets.MEXC_SECRET_KEY }}" >> config/config.ini
         
+    - name: Test Telegram Notification
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        echo "Testing Telegram notification..."
+        python -m src.test_notification
+        
     - name: Run arbitrage scanner
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
