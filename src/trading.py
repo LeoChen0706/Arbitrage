@@ -1,6 +1,8 @@
 import ccxt
 import time
 import logging
+import os
+import traceback
 from pathlib import Path
 import configparser
 from typing import List, Dict, Tuple, Optional
