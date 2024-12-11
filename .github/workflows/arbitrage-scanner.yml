@@ -12,8 +12,6 @@ jobs:
     
     steps:
     - uses: actions/checkout@v3
-      with:
-        fetch-depth: 1
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -23,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install ccxt pandas python-telegram-bot requests
+        pip install -r requirements.txt
         
     - name: Create config directory
       run: |
@@ -44,10 +42,11 @@ jobs:
         echo "bot_token=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> config/config.ini
         echo "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" >> config/config.ini
         
-    - name: List directory contents
+    - name: List files
       run: |
+        pwd
         ls -la
         
     - name: Run arbitrage scanner
       run: |
-        python Arbitrage/trading.py
+        python trading.py
