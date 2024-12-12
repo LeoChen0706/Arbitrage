@@ -406,7 +406,7 @@ class EnhancedTrading:
             opportunities = []
             for symbol in common_symbols:
                 result = self.calculate_arbitrage(symbol)
-                if result and result['best_spread'] > 0:  # Only check if spread is positive
+                if result and result['best_spread'] > 0:
                     opportunities.append(result)
                 time.sleep(self.exchange1.rateLimit / 1000)
             
@@ -434,9 +434,16 @@ class EnhancedTrading:
                 df.to_csv(filename, index=False)
                 self.logger.info(f"\nOpportunities saved to {filename}")
                 
-            # Send notifications if enabled
-            if self.notifier:
-                asyncio.run(self.notify_opportunities(top_opportunities))
+            # Send notifications if enabled and there are opportunities
+            if self.notifier and top_opportunities:
+                try:
+                    # Changed from asyncio.run to just await the notification
+                    for opp in top_opportunities:
+                        message = self.notifier.format_opportunity(opp)
+                        await self.notifier.send_message(message)
+                        await asyncio.sleep(1)  # Rate limiting
+                except Exception as e:
+                    self.logger.error(f"Failed to send notifications: {str(e)}")
                 
         except Exception as e:
             self.logger.error(f"Error finding arbitrage opportunities: {str(e)}")
