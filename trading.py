@@ -127,75 +127,52 @@ class EnhancedTrading:
         return network_mappings.get(network, network)
 
     def get_token_info(self, exchange: ccxt.Exchange, symbol: str) -> Optional[Dict]:
-    """Get token information with proper contract address parsing"""
-    try:
-        cache_key = f"{exchange.id}_{symbol}"
-        if cache_key in self.token_info_cache:
-            return self.token_info_cache[cache_key]
-        
-        market = exchange.markets.get(symbol)
-        if not market:
-            return None
+        """Get token information with proper contract address parsing"""
+        try:
+            cache_key = f"{exchange.id}_{symbol}"
+            if cache_key in self.token_info_cache:
+                return self.token_info_cache[cache_key]
             
-        base = market['base']
-        currencies = exchange.fetch_currencies()
-        if base not in currencies:
-            return None
+            market = exchange.markets.get(symbol)
+            if not market:
+                return None
+                
+            base = market['base']
+            currencies = exchange.fetch_currencies()
+            if base not in currencies:
+                return None
+                
+            currency_info = currencies[base]
             
-        currency_info = currencies[base]
-        
-        # Better logging of raw info
-        self.logger.info(f"\n{exchange.id} raw info for {symbol}:")
-        if 'info' in currency_info:
-            # Log each network separately for clarity
-            if isinstance(currency_info['info'], dict):
-                for key, value in currency_info['info'].items():
-                    self.logger.info(f"{key}: {value}")
-        
-        networks = {}
-        contract_addresses = {}
-        
-        # Handle MEXC specific structure
-        if exchange.id == 'mexc':
+            # Better logging of raw info
+            self.logger.info(f"\n{exchange.id} raw info for {symbol}:")
             if 'info' in currency_info:
-                chains_info = currency_info['info']
-                network_list = chains_info.get('networkList', [])
-                
-                # Try both networkList and direct chain info
-                if not network_list and 'network' in chains_info:
-                    network_list = [chains_info]
-                
-                # Log each network being processed
-                for chain in network_list:
-                    self.logger.info(f"Processing MEXC network: {chain}")
-                    network = chain.get('network', '').upper()
-                    if not network:
-                        continue
-                        
-                    contract = chain.get('contract') or chain.get('sameAddress')
-                    if contract:
-                        networks[network] = {
-                            'network': network,
-                            'contract': contract.lower(),
-                            'withdrawEnabled': chain.get('withdrawEnable', True),
-                            'depositEnabled': chain.get('depositEnable', True)
-                        }
-                        contract_addresses[network] = contract.lower()
-                        self.logger.info(f"Found MEXC contract for {symbol} on {network}: {contract}")
-        
-        # Handle Bitget specific structure
-        elif exchange.id == 'bitget':
-            if 'info' in currency_info and isinstance(currency_info['info'], dict):
-                chains = currency_info['info'].get('chains', [])
-                if isinstance(chains, list):
-                    # Log each chain being processed
-                    for chain in chains:
-                        self.logger.info(f"Processing Bitget chain: {chain}")
-                        network = chain.get('chain', '').upper()
+                # Log each network separately for clarity
+                if isinstance(currency_info['info'], dict):
+                    for key, value in currency_info['info'].items():
+                        self.logger.info(f"{key}: {value}")
+            
+            networks = {}
+            contract_addresses = {}
+            
+            # Handle MEXC specific structure
+            if exchange.id == 'mexc':
+                if 'info' in currency_info:
+                    chains_info = currency_info['info']
+                    network_list = chains_info.get('networkList', [])
+                    
+                    # Try both networkList and direct chain info
+                    if not network_list and 'network' in chains_info:
+                        network_list = [chains_info]
+                    
+                    # Log each network being processed
+                    for chain in network_list:
+                        self.logger.info(f"Processing MEXC network: {chain}")
+                        network = chain.get('network', '').upper()
                         if not network:
                             continue
                             
-                        contract = chain.get('contract') or chain.get('contractAddress')
+                        contract = chain.get('contract') or chain.get('sameAddress')
                         if contract:
                             networks[network] = {
                                 'network': network,
@@ -204,26 +181,49 @@ class EnhancedTrading:
                                 'depositEnabled': chain.get('depositEnable', True)
                             }
                             contract_addresses[network] = contract.lower()
-                            self.logger.info(f"Found Bitget contract for {symbol} on {network}: {contract}")
-        
-        # Log final results
-        self.logger.info(f"Final networks found for {symbol}:")
-        for network, info in networks.items():
-            self.logger.info(f"Network: {network}, Contract: {info['contract']}")
-        
-        token_info = {
-            'symbol': base,
-            'networks': networks,
-            'contract_addresses': contract_addresses,
-        }
-        
-        self.token_info_cache[cache_key] = token_info
-        return token_info
-        
-    except Exception as e:
-        self.logger.error(f"Error getting token info for {symbol} on {exchange.id}: {str(e)}")
-        self.logger.exception(e)  # This will print the full stack trace
-        return None
+                            self.logger.info(f"Found MEXC contract for {symbol} on {network}: {contract}")
+            
+            # Handle Bitget specific structure
+            elif exchange.id == 'bitget':
+                if 'info' in currency_info and isinstance(currency_info['info'], dict):
+                    chains = currency_info['info'].get('chains', [])
+                    if isinstance(chains, list):
+                        # Log each chain being processed
+                        for chain in chains:
+                            self.logger.info(f"Processing Bitget chain: {chain}")
+                            network = chain.get('chain', '').upper()
+                            if not network:
+                                continue
+                                
+                            contract = chain.get('contract') or chain.get('contractAddress')
+                            if contract:
+                                networks[network] = {
+                                    'network': network,
+                                    'contract': contract.lower(),
+                                    'withdrawEnabled': chain.get('withdrawEnable', True),
+                                    'depositEnabled': chain.get('depositEnable', True)
+                                }
+                                contract_addresses[network] = contract.lower()
+                                self.logger.info(f"Found Bitget contract for {symbol} on {network}: {contract}")
+            
+            # Log final results
+            self.logger.info(f"Final networks found for {symbol}:")
+            for network, info in networks.items():
+                self.logger.info(f"Network: {network}, Contract: {info['contract']}")
+            
+            token_info = {
+                'symbol': base,
+                'networks': networks,
+                'contract_addresses': contract_addresses,
+            }
+            
+            self.token_info_cache[cache_key] = token_info
+            return token_info
+            
+        except Exception as e:
+            self.logger.error(f"Error getting token info for {symbol} on {exchange.id}: {str(e)}")
+            self.logger.exception(e)  # This will print the full stack trace
+            return None
     
     # Option 1: Rename the function to match what's being called
     def verify_token_contracts(self, symbol: str) -> bool:  # Changed from verify_token_compatibility
