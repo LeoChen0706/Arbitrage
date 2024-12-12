@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import datetime
 import telegram
 import asyncio
+from typing import Optional, Dict, List  # Added typing imports
 
 def setup_logging():
     Path("logs").mkdir(exist_ok=True)
@@ -119,27 +120,7 @@ class ArbitrageScanner:
             self.logger.error(f"Error verifying {symbol}: {str(e)}")
             return False
 
-    def get_common_pairs(self):
-        """Get common pairs with verified contract addresses"""
-        # Get USDT pairs from both exchanges
-        bitget_pairs = set(s for s in self.bitget.symbols if s.endswith('/USDT'))
-        mexc_pairs = set(s for s in self.mexc.symbols if s.endswith('/USDT'))
-        common_pairs = list(bitget_pairs.intersection(mexc_pairs))
-        
-        self.logger.info(f"Found {len(common_pairs)} pairs with same name")
-        
-        # Verify each pair
-        verified_pairs = []
-        for pair in common_pairs:
-            if self.verify_token(pair):
-                verified_pairs.append(pair)
-                self.logger.info(f"Verified {pair}")
-            time.sleep(0.1)  # Rate limiting
-        
-        self.logger.info(f"Found {len(verified_pairs)} verified pairs")
-        return verified_pairs
-
-    def calculate_arbitrage(self, symbol: str) -> Optional[dict]:
+    def calculate_arbitrage(self, symbol: str) -> Optional[Dict]:
         """Calculate arbitrage opportunity with accurate spreads"""
         try:
             # Get orderbooks
@@ -188,27 +169,43 @@ class ArbitrageScanner:
             self.logger.error(f"Error calculating arbitrage for {symbol}: {str(e)}")
             return None
 
+    def get_common_pairs(self) -> List[str]:
+        """Get common pairs with verified contract addresses"""
+        # Get USDT pairs
+        bitget_pairs = set(s for s in self.bitget.symbols if s.endswith('/USDT'))
+        mexc_pairs = set(s for s in self.mexc.symbols if s.endswith('/USDT'))
+        common_pairs = list(bitget_pairs.intersection(mexc_pairs))
+        
+        self.logger.info(f"Found {len(common_pairs)} pairs with same name")
+        
+        # Verify each pair
+        verified_pairs = []
+        for pair in common_pairs:
+            if self.verify_token(pair):
+                verified_pairs.append(pair)
+                self.logger.info(f"Verified {pair}")
+            time.sleep(0.1)
+        
+        self.logger.info(f"Found {len(verified_pairs)} verified pairs")
+        return verified_pairs
+
     async def scan_opportunities(self):
         """Scan for top 5 real arbitrage opportunities"""
         self.logger.info("Starting arbitrage scan...")
         
-        # Get verified common pairs
         pairs = self.get_common_pairs()
         self.logger.info(f"Found {len(pairs)} verified pairs")
         
-        # Calculate arbitrage for each pair
         opportunities = []
         for pair in pairs:
             result = self.calculate_arbitrage(pair)
-            if result:  # Only append if there's a profitable opportunity
+            if result:
                 opportunities.append(result)
-            time.sleep(0.1)  # Rate limiting
+            time.sleep(0.1)
         
-        # Sort by spread and get true top 5
         opportunities.sort(key=lambda x: x['spread'], reverse=True)
         top_5 = opportunities[:5]
         
-        # Log results
         self.logger.info("\nTop 5 Arbitrage Opportunities:")
         for opp in top_5:
             self.logger.info(
@@ -220,7 +217,6 @@ class ArbitrageScanner:
                 f"\nMEXC: {opp['mexc_ask']}/{opp['mexc_bid']}"
             )
             
-            # Send Telegram alert
             if self.bot:
                 message = (
                     f"💰 Arbitrage Opportunity\n\n"
@@ -233,7 +229,6 @@ class ArbitrageScanner:
                 )
                 await self.bot.send_message(chat_id=self.chat_id, text=message)
         
-        # Save to CSV
         if top_5:
             df = pd.DataFrame(top_5)
             df.to_csv(f"opportunities_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", index=False)
