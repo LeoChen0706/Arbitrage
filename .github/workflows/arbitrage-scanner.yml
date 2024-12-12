@@ -3,8 +3,8 @@ name: Arbitrage Scanner
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Runs every 30 minutes
-  workflow_dispatch:  # Allows manual triggering
+    - cron: '*/15 * * * *'  # Runs every 15 minutes
+  workflow_dispatch:  # Allows manual trigger
 
 jobs:
   scan:
@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install ccxt pandas python-telegram-bot requests numpy
         
     - name: Create config directory
       run: |
@@ -42,11 +42,18 @@ jobs:
         echo "bot_token=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> config/config.ini
         echo "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" >> config/config.ini
         
-    - name: List files
+    - name: Create logs directory
       run: |
-        pwd
-        ls -la
+        mkdir -p logs
         
-    - name: Run arbitrage scanner
-      run: |
-        python trading.py
+    - name: Run scanner
+      run: python trading.py
+      
+    - name: Archive results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: arbitrage-results
+        path: |
+          logs/
+          *.csv
