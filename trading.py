@@ -139,77 +139,72 @@ class ArbitrageScanner:
         self.logger.info(f"Found {len(verified_pairs)} verified pairs")
         return verified_pairs
 
-    def calculate_arbitrage(self, symbol):
+    def calculate_arbitrage(self, symbol: str) -> Optional[dict]:
+        """Calculate arbitrage opportunity with accurate spreads"""
         try:
             # Get orderbooks
-            book1 = self.bitget.fetch_order_book(symbol)
-            book2 = self.mexc.fetch_order_book(symbol)
+            bitget_book = self.bitget.fetch_order_book(symbol)
+            mexc_book = self.mexc.fetch_order_book(symbol)
+            
+            if not bitget_book['bids'] or not bitget_book['asks'] or not mexc_book['bids'] or not mexc_book['asks']:
+                return None
             
             # Get best prices
-            bitget_bid = book1['bids'][0][0] if book1['bids'] else 0
-            bitget_ask = book1['asks'][0][0] if book1['asks'] else 0
-            mexc_bid = book2['bids'][0][0] if book2['bids'] else 0
-            mexc_ask = book2['asks'][0][0] if book2['asks'] else 0
+            bitget_bid = float(bitget_book['bids'][0][0])
+            bitget_ask = float(bitget_book['asks'][0][0])
+            mexc_bid = float(mexc_book['bids'][0][0])
+            mexc_ask = float(mexc_book['asks'][0][0])
             
-            if not all([bitget_bid, bitget_ask, mexc_bid, mexc_ask]):
+            # Calculate both spreads
+            bitget_to_mexc = ((mexc_bid - bitget_ask) / bitget_ask) * 100
+            mexc_to_bitget = ((bitget_bid - mexc_ask) / mexc_ask) * 100
+            
+            # Get executable volumes
+            if bitget_to_mexc > mexc_to_bitget:
+                direction = 'Bitget→MEXC'
+                spread = bitget_to_mexc
+                volume = min(float(bitget_book['asks'][0][1]), float(mexc_book['bids'][0][1]))
+            else:
+                direction = 'MEXC→Bitget'
+                spread = mexc_to_bitget
+                volume = min(float(mexc_book['asks'][0][1]), float(bitget_book['bids'][0][1]))
+            
+            # Skip if no profitable opportunity
+            if spread <= 0:
                 return None
-                
-            # Calculate spreads
-            spread1 = ((mexc_bid - bitget_ask) / bitget_ask) * 100  # Buy on Bitget, Sell on MEXC
-            spread2 = ((bitget_bid - mexc_ask) / mexc_ask) * 100  # Buy on MEXC, Sell on Bitget
-            
-            # Get executable volume
-            volume = min(book1['bids'][0][1], book2['asks'][0][1])
             
             return {
                 'symbol': symbol,
-                'spread': max(spread1, spread2),
-                'direction': 'Bitget→MEXC' if spread1 > spread2 else 'MEXC→Bitget',
-                'bitget_bid': bitget_bid,
-                'bitget_ask': bitget_ask,
-                'mexc_bid': mexc_bid,
-                'mexc_ask': mexc_ask,
-                'volume': volume
+                'direction': direction,
+                'spread': round(spread, 4),
+                'volume': round(volume, 4),
+                'bitget_bid': round(bitget_bid, 8),
+                'bitget_ask': round(bitget_ask, 8),
+                'mexc_bid': round(mexc_bid, 8),
+                'mexc_ask': round(mexc_ask, 8)
             }
+        
         except Exception as e:
-            self.logger.error(f"Error calculating arbitrage for {symbol}: {e}")
+            self.logger.error(f"Error calculating arbitrage for {symbol}: {str(e)}")
             return None
 
-    async def send_telegram_alert(self, opp):
-        if not self.bot:
-            return
-            
-        message = (
-            f"💰 Arbitrage Opportunity\n\n"
-            f"Pair: {opp['symbol']}\n"
-            f"Direction: {opp['direction']}\n"
-            f"Spread: {opp['spread']:.2f}%\n"
-            f"Volume: {opp['volume']:.2f} USDT\n\n"
-            f"Bitget: {opp['bitget_ask']}/{opp['bitget_bid']}\n"
-            f"MEXC: {opp['mexc_ask']}/{opp['mexc_bid']}"
-        )
-        
-        try:
-            await self.bot.send_message(chat_id=self.chat_id, text=message)
-        except Exception as e:
-            self.logger.error(f"Telegram error: {e}")
-
     async def scan_opportunities(self):
+        """Scan for top 5 real arbitrage opportunities"""
         self.logger.info("Starting arbitrage scan...")
         
-        # Get common pairs
+        # Get verified common pairs
         pairs = self.get_common_pairs()
-        self.logger.info(f"Found {len(pairs)} common pairs")
+        self.logger.info(f"Found {len(pairs)} verified pairs")
         
         # Calculate arbitrage for each pair
         opportunities = []
         for pair in pairs:
             result = self.calculate_arbitrage(pair)
-            if result and result['spread'] > 0:
+            if result:  # Only append if there's a profitable opportunity
                 opportunities.append(result)
             time.sleep(0.1)  # Rate limiting
         
-        # Sort by spread and get top 5
+        # Sort by spread and get true top 5
         opportunities.sort(key=lambda x: x['spread'], reverse=True)
         top_5 = opportunities[:5]
         
@@ -219,14 +214,24 @@ class ArbitrageScanner:
             self.logger.info(
                 f"\nPair: {opp['symbol']}"
                 f"\nDirection: {opp['direction']}"
-                f"\nSpread: {opp['spread']:.2f}%"
-                f"\nVolume: {opp['volume']:.2f} USDT"
+                f"\nSpread: {opp['spread']}%"
+                f"\nVolume: {opp['volume']} USDT"
                 f"\nBitget: {opp['bitget_ask']}/{opp['bitget_bid']}"
                 f"\nMEXC: {opp['mexc_ask']}/{opp['mexc_bid']}"
             )
             
             # Send Telegram alert
-            await self.send_telegram_alert(opp)
+            if self.bot:
+                message = (
+                    f"💰 Arbitrage Opportunity\n\n"
+                    f"Pair: {opp['symbol']}\n"
+                    f"Direction: {opp['direction']}\n"
+                    f"Spread: {opp['spread']}%\n"
+                    f"Volume: {opp['volume']} USDT\n\n"
+                    f"Bitget: {opp['bitget_ask']}/{opp['bitget_bid']}\n"
+                    f"MEXC: {opp['mexc_ask']}/{opp['mexc_bid']}"
+                )
+                await self.bot.send_message(chat_id=self.chat_id, text=message)
         
         # Save to CSV
         if top_5:
