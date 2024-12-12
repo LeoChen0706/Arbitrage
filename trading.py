@@ -211,7 +211,8 @@ class EnhancedTrading:
             self.logger.error(f"Error getting token info for {symbol} on {exchange.id}: {str(e)}")
             return None
     
-    def verify_token_compatibility(self, symbol: str) -> bool:
+    # Option 1: Rename the function to match what's being called
+    def verify_token_contracts(self, symbol: str) -> bool:  # Changed from verify_token_compatibility
         """Verify tokens match exactly by checking contract addresses"""
         try:
             token1 = self.get_token_info(self.exchange1, symbol)
@@ -247,7 +248,8 @@ class EnhancedTrading:
         except Exception as e:
             self.logger.error(f"Error verifying {symbol}: {str(e)}")
             return False
-
+    
+    # And update get_common_symbols to use the correct function name
     def get_common_symbols(self) -> List[str]:
         """Get list of common trading pairs with verified contracts"""
         try:
@@ -263,29 +265,19 @@ class EnhancedTrading:
             
             # Verify each symbol
             verified_symbols = []
-            self.verified_networks = {}  # Store verified networks for each symbol
-            
             for symbol in common_symbols:
                 try:
-                    # First verify token contracts
-                    is_verified, networks = self.verify_token_contracts(symbol)
-                    if not is_verified:
-                        continue
+                    if self.verify_token_contracts(symbol):  # Using the correct function name
+                        # Check trading volume
+                        ticker1 = self.exchange1.fetch_ticker(symbol)
+                        ticker2 = self.exchange2.fetch_ticker(symbol)
                         
-                    # Then check trading volume
-                    ticker1 = self.exchange1.fetch_ticker(symbol)
-                    ticker2 = self.exchange2.fetch_ticker(symbol)
-                    
-                    if (ticker1.get('quoteVolume', 0) >= self.volume_threshold and 
-                        ticker2.get('quoteVolume', 0) >= self.volume_threshold):
-                        verified_symbols.append(symbol)
-                        self.verified_networks[symbol] = networks
-                        self.logger.info(
-                            f"Verified {symbol} with volume requirements "
-                            f"(Networks: {', '.join(networks)})"
-                        )
-                    else:
-                        self.logger.debug(f"Insufficient volume for {symbol}")
+                        if (ticker1.get('quoteVolume', 0) >= self.volume_threshold and 
+                            ticker2.get('quoteVolume', 0) >= self.volume_threshold):
+                            verified_symbols.append(symbol)
+                            self.logger.info(f"Verified {symbol}")
+                        else:
+                            self.logger.debug(f"{symbol}: Insufficient volume")
                     
                     time.sleep(self.exchange1.rateLimit / 1000)
                     
