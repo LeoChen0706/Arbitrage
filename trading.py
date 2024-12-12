@@ -405,7 +405,7 @@ class EnhancedTrading:
             self.logger.error(f"Failed to send notifications: {str(e)}")
 
     def find_arbitrage_opportunities(self) -> None:
-        """Find and display arbitrage opportunities with complete network information"""
+        """Find top 5 arbitrage opportunities sorted by spread"""
         try:
             self.logger.info("Starting arbitrage scan...")
             
@@ -415,44 +415,41 @@ class EnhancedTrading:
             opportunities = []
             for symbol in common_symbols:
                 result = self.calculate_arbitrage(symbol)
-                if result and \
-                   result['best_spread'] > 0 and \
-                   result['min_liquidity_score'] >= self.min_liquidity_score and \
-                   result['executable_volume'] >= self.depth_threshold:
+                if result and result['best_spread'] > 0:  # Only check if spread is positive
                     opportunities.append(result)
                 time.sleep(self.exchange1.rateLimit / 1000)
             
-            # Sort opportunities
-            opportunities.sort(key=lambda x: (
-                x['best_spread'] * 
-                x['min_liquidity_score'] * 
-                min(1, x['executable_volume'] / self.depth_threshold)
-            ), reverse=True)
-            
+            # Sort by spread and get top 5
+            opportunities.sort(key=lambda x: x['best_spread'], reverse=True)
             top_opportunities = opportunities[:5]
             
-            # Display results with complete network information
+            # Display results
             self.logger.info("\nBest arbitrage opportunities:")
             for opp in top_opportunities:
                 self.logger.info(
-                    f"\nPair: {opp['symbol']}\n"
-                    f"Direction: {opp['direction']}\n"
-                    f"Spread: {opp['best_spread']}%\n"
-                    f"Bitget: {opp['bitget_ask']}/{opp['bitget_bid']} "
-                    f"(Depth: {opp['bitget_depth']} USDT, "
-                    f"24h Volume: {opp['bitget_volume_24h']} USDT, "
-                    f"Liquidity Score: {opp['bitget_liquidity_score']})\n"
-                    f"MEXC: {opp['mexc_ask']}/{opp['mexc_bid']} "
-                    f"(Depth: {opp['mexc_depth']} USDT, "
-                    f"24h Volume: {opp['mexc_volume_24h']} USDT, "
-                    f"Liquidity Score: {opp['mexc_liquidity_score']})\n"
-                    f"Executable Volume: {opp['executable_volume']} USDT\n"
-                    f"Supported Networks: {', '.join(opp['supported_networks'])}\n"
+                    f"\nPair: {opp['symbol']}"
+                    f"\nDirection: {opp['direction']}"
+                    f"\nSpread: {opp['best_spread']}%"
+                    f"\nBitget: {opp['bitget_ask']}/{opp['bitget_bid']}"
+                    f"\nMEXC: {opp['mexc_ask']}/{opp['mexc_bid']}"
+                    f"\nExecutable Volume: {opp['executable_volume']} USDT"
+                    f"\nSupported Networks: {', '.join(opp['supported_networks'])}"
                 )
+            
+            # Save to CSV
+            if top_opportunities:
+                df = pd.DataFrame(top_opportunities)
+                filename = f"arbitrage_opportunities_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                df.to_csv(filename, index=False)
+                self.logger.info(f"\nOpportunities saved to {filename}")
+                
+            # Send notifications if enabled
+            if self.notifier:
+                asyncio.run(self.notify_opportunities(top_opportunities))
                 
         except Exception as e:
             self.logger.error(f"Error finding arbitrage opportunities: {str(e)}")
-            self.logger.exception(e)  # Print full stack trace
+            self.logger.exception(e)
 
 def main():
     """Main execution function"""
