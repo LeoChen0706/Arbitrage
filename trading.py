@@ -127,123 +127,126 @@ class EnhancedTrading:
         return network_mappings.get(network, network)
 
     def get_token_info(self, exchange: ccxt.Exchange, symbol: str) -> Optional[Dict]:
-        """Get detailed token information including contract addresses"""
-        try:
-            cache_key = f"{exchange.id}_{symbol}"
-            if cache_key in self.token_info_cache:
-                return self.token_info_cache[cache_key]
-            
-            # Parse trading pair
-            market = exchange.markets.get(symbol)
-            if not market:
-                return None
-                
-            base = market['base']
-            
-            # Get currency information including contracts
-            currencies = exchange.fetch_currencies()
-            if base not in currencies:
-                return None
-                
-            currency_info = currencies[base]
-            token_info = {'contracts': {}, 'networks': set()}
-            
-            # Debug log raw currency info
-            self.logger.info(f"\n{exchange.id} raw info for {symbol}:")
-            self.logger.info(str(currency_info))
-            
-            # Extract contract addresses and network info
-            # Handle Bitget format
-            if exchange.id == 'bitget':
-                if 'info' in currency_info and isinstance(currency_info['info'], dict):
-                    chains = currency_info['info'].get('chains', [])
-                    if isinstance(chains, list):
-                        for chain in chains:
-                            if isinstance(chain, dict):
-                                network = chain.get('chainName', '').upper()
-                                contract = chain.get('contractAddress')
-                                withdraw_enabled = chain.get('withdrawEnable', True)
-                                deposit_enabled = chain.get('depositEnable', True)
-                                
-                                if network and contract:
-                                    network = self.normalize_network_name(network)
-                                    token_info['contracts'][network] = contract.lower()
-                                    if withdraw_enabled and deposit_enabled:
-                                        token_info['networks'].add(network)
-                                        self.logger.info(f"Found Bitget contract for {symbol} on {network}: {contract}")
-            
-            # Handle MEXC format
-            elif exchange.id == 'mexc':
-                if 'info' in currency_info:
-                    chains_info = currency_info.get('info', {})
-                    networks = chains_info.get('networkList', [])
-                    if not networks:
-                        networks = chains_info.get('chains', [])
-                    if not networks and 'network' in chains_info:
-                        networks = [chains_info]
-    
-                    self.logger.info(f"MEXC networks for {symbol}: {networks}")
-                    
-                    for network_info in networks:
-                        if isinstance(network_info, dict):
-                            network = (network_info.get('network') or 
-                                     network_info.get('chain') or 
-                                     network_info.get('chainName', '')).upper()
-                            
-                            contract = (network_info.get('contractAddress') or 
-                                      network_info.get('contract_address') or 
-                                      network_info.get('contract'))
-                            
-                            if network and contract:
-                                network = self.normalize_network_name(network)
-                                token_info['contracts'][network] = contract.lower()
-                                token_info['networks'].add(network)
-                                self.logger.info(f"Found MEXC contract for {symbol} on {network}: {contract}")
-    
-            self.token_info_cache[cache_key] = token_info
-            return token_info
-            
-        except Exception as e:
-            self.logger.error(f"Error getting token info for {symbol} on {exchange.id}: {str(e)}")
+    """Get token information with proper contract address parsing"""
+    try:
+        cache_key = f"{exchange.id}_{symbol}"
+        if cache_key in self.token_info_cache:
+            return self.token_info_cache[cache_key]
+        
+        market = exchange.markets.get(symbol)
+        if not market:
             return None
-
-    def verify_token_contracts(self, symbol: str) -> Tuple[bool, List[str]]:
-        """Verify token contracts match across exchanges and return compatible networks"""
-        try:
-            token1 = self.get_token_info(self.exchange1, symbol)
-            token2 = self.get_token_info(self.exchange2, symbol)
-    
-            if not token1 or not token2:
-                self.logger.debug(f"Could not get token info for {symbol}")
-                return False, []
-    
-            # Find networks with matching contracts
-            verified_networks = []
-            for network in token1['networks'] & token2['networks']:
-                contract1 = token1['contracts'].get(network)
-                contract2 = token2['contracts'].get(network)
+            
+        base = market['base']
+        currencies = exchange.fetch_currencies()
+        if base not in currencies:
+            return None
+            
+        currency_info = currencies[base]
+        
+        # Debug log the raw response
+        self.logger.info(f"\n{exchange.id} raw info for {symbol}:")
+        self.logger.info(str(currency_info))
+        
+        networks = {}
+        contract_addresses = {}
+        
+        # Handle MEXC specific structure
+        if exchange.id == 'mexc':
+            if 'info' in currency_info:
+                chains_info = currency_info['info']
+                network_list = chains_info.get('networkList', [])
                 
-                if contract1 and contract2:
-                    if contract1.lower() == contract2.lower():
-                        verified_networks.append(network)
-                        self.logger.info(
-                            f"Verified {symbol} on {network}\n"
-                            f"Contract: {contract1.lower()}"
-                        )
-                    else:
-                        self.logger.warning(
-                            f"Contract mismatch for {symbol} on {network}:\n"
-                            f"Bitget: {contract1}\n"
-                            f"MEXC: {contract2}"
-                        )
-    
-            if verified_networks:
-                return True, verified_networks
-            return False, []
-    
-        except Exception as e:
-            self.logger.error(f"Error verifying token contracts for {symbol}: {str(e)}")
-            return False, []
+                # Try both networkList and direct chain info
+                if not network_list and 'network' in chains_info:
+                    network_list = [chains_info]
+                
+                for chain in network_list:
+                    network = chain.get('network', '').upper()
+                    if not network:
+                        continue
+                        
+                    contract = chain.get('contract') or chain.get('sameAddress')
+                    if contract:
+                        networks[network] = {
+                            'network': network,
+                            'contract': contract.lower(),
+                            'withdrawEnabled': chain.get('withdrawEnable', True),
+                            'depositEnabled': chain.get('depositEnable', True)
+                        }
+                        contract_addresses[network] = contract.lower()
+                        self.logger.info(f"Found MEXC contract for {symbol} on {network}: {contract}")
+        
+        # Handle Bitget specific structure
+        elif exchange.id == 'bitget':
+            if 'info' in currency_info and isinstance(currency_info['info'], dict):
+                chains = currency_info['info'].get('chains', [])
+                if isinstance(chains, list):
+                    for chain in chains:
+                        network = chain.get('chain', '').upper()
+                        if not network:
+                            continue
+                            
+                        contract = chain.get('contract') or chain.get('contractAddress')
+                        if contract:
+                            networks[network] = {
+                                'network': network,
+                                'contract': contract.lower(),
+                                'withdrawEnabled': chain.get('withdrawEnable', True),
+                                'depositEnabled': chain.get('depositEnable', True)
+                            }
+                            contract_addresses[network] = contract.lower()
+                            self.logger.info(f"Found Bitget contract for {symbol} on {network}: {contract}")
+        
+        token_info = {
+            'symbol': base,
+            'networks': networks,
+            'contract_addresses': contract_addresses,
+        }
+        
+        self.token_info_cache[cache_key] = token_info
+        return token_info
+        
+    except Exception as e:
+        self.logger.error(f"Error getting token info for {symbol} on {exchange.id}: {str(e)}")
+        return None
+
+def verify_token_compatibility(self, symbol: str) -> bool:
+    """Verify tokens match exactly by checking contract addresses"""
+    try:
+        token1 = self.get_token_info(self.exchange1, symbol)
+        token2 = self.get_token_info(self.exchange2, symbol)
+        
+        if not token1 or not token2:
+            return False
+            
+        # Find matching networks with contract addresses
+        networks1 = set(token1['contract_addresses'].keys())
+        networks2 = set(token2['contract_addresses'].keys())
+        
+        common_networks = networks1.intersection(networks2)
+        if not common_networks:
+            self.logger.debug(f"{symbol}: No common networks with contracts")
+            return False
+            
+        # Verify contract addresses match exactly
+        for network in common_networks:
+            addr1 = token1['contract_addresses'][network]
+            addr2 = token2['contract_addresses'][network]
+            
+            if addr1.lower() != addr2.lower():
+                self.logger.warning(f"{symbol} contract mismatch on {network}:")
+                self.logger.warning(f"Bitget: {addr1}")
+                self.logger.warning(f"MEXC: {addr2}")
+                return False
+            else:
+                self.logger.info(f"Verified {symbol} contract on {network}: {addr1}")
+        
+        return True
+
+    except Exception as e:
+        self.logger.error(f"Error verifying {symbol}: {str(e)}")
+        return False
 
     def get_common_symbols(self) -> List[str]:
         """Get list of common trading pairs with verified contracts"""
