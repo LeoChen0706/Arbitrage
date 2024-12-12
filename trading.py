@@ -147,6 +147,10 @@ class EnhancedTrading:
                 
             currency_info = currencies[base]
             token_info = {'contracts': {}, 'networks': set()}
+
+            # Debug log raw currency info
+            self.logger.info(f"\n{exchange.id} raw info for {symbol}:")
+            self.logger.info(str(currency_info))
             
             # Handle Bitget's structure
             if exchange.id == 'bitget':
@@ -170,22 +174,38 @@ class EnhancedTrading:
             # Handle MEXC's structure
             elif exchange.id == 'mexc':
                 if 'info' in currency_info:
-                    for network_info in currency_info.get('networkList', []):
+                    chains_info = currency_info.get('info', {})
+                    
+                    # Try different possible paths where MEXC might store contract info
+                    networks = chains_info.get('networkList', [])
+                    if not networks:
+                        networks = chains_info.get('chains', [])
+                    if not networks and 'network' in chains_info:
+                        networks = [chains_info]
+
+                    self.logger.info(f"MEXC networks for {symbol}: {networks}")
+                    
+                    for network_info in networks:
                         if isinstance(network_info, dict):
-                            network = network_info.get('network', '').upper()
-                            contract = network_info.get('contractAddress')
-                            withdraw_enabled = network_info.get('withdrawEnable', True)
-                            deposit_enabled = network_info.get('depositEnable', True)
+                            # Try different possible field names
+                            network = (network_info.get('network') or 
+                                     network_info.get('chain') or 
+                                     network_info.get('chainName', '')).upper()
+                            
+                            contract = (network_info.get('contractAddress') or 
+                                      network_info.get('contract_address') or 
+                                      network_info.get('contract'))
                             
                             if network and contract:
                                 network = self.normalize_network_name(network)
                                 token_info['contracts'][network] = contract.lower()
-                                if withdraw_enabled and deposit_enabled:
-                                    token_info['networks'].add(network)
-                                    self.logger.info(f"Found MEXC contract for {symbol} on {network}: {contract}")
+                                token_info['networks'].add(network)
+                                self.logger.info(f"Found MEXC contract for {symbol} on {network}: {contract}")
             
             if not token_info['networks']:
                 self.logger.debug(f"No networks found for {symbol} on {exchange.id}")
+            else:
+                self.logger.info(f"Found networks for {symbol} on {exchange.id}: {token_info['networks']}")
             
             self.token_info_cache[cache_key] = token_info
             return token_info
