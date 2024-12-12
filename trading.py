@@ -395,7 +395,7 @@ class EnhancedTrading:
             self.logger.error(f"Error calculating arbitrage for {symbol}: {str(e)}")
             return None
 
-    def find_arbitrage_opportunities(self) -> None:
+    async def find_arbitrage_opportunities(self) -> None:
         """Find top 5 arbitrage opportunities sorted by spread"""
         try:
             self.logger.info("Starting arbitrage scan...")
@@ -437,7 +437,6 @@ class EnhancedTrading:
             # Send notifications if enabled and there are opportunities
             if self.notifier and top_opportunities:
                 try:
-                    # Changed from asyncio.run to just await the notification
                     for opp in top_opportunities:
                         message = self.notifier.format_opportunity(opp)
                         await self.notifier.send_message(message)
@@ -448,14 +447,14 @@ class EnhancedTrading:
         except Exception as e:
             self.logger.error(f"Error finding arbitrage opportunities: {str(e)}")
             self.logger.exception(e)
-
-def main():
-    """Main execution function"""
-    try:
-        trader = EnhancedTrading()
-        trader.find_arbitrage_opportunities()
-    except Exception as e:
-        print(f"Program execution failed: {str(e)}")
-
-if __name__ == "__main__":
-    main()
+    
+    async def main():
+        """Async main execution function"""
+        try:
+            trader = EnhancedTrading()
+            await trader.find_arbitrage_opportunities()
+        except Exception as e:
+            print(f"Program execution failed: {str(e)}")
+    
+    if __name__ == "__main__":
+        asyncio.run(main())
