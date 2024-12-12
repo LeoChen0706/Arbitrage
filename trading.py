@@ -329,54 +329,63 @@ class EnhancedTrading:
             self.logger.error(f"Error getting market data for {symbol}: {str(e)}")
             return None, None, 0
 
-    def calculate_arbitrage(self, symbol: str) -> Optional[Dict]:
-        """Calculate arbitrage opportunity for a symbol"""
+    def calculate_arbitrage(self, symbol: str) -> Dict:
+        """Calculate arbitrage opportunities with complete network information"""
         try:
-            # Get market data from both exchanges
+            # Get market data
             orderbook1, ticker1, liquidity1 = self.get_market_data(self.exchange1, symbol)
             orderbook2, ticker2, liquidity2 = self.get_market_data(self.exchange2, symbol)
             
             if not all([orderbook1, orderbook2, ticker1, ticker2]):
                 return None
+                
+            # Calculate prices and depths
+            bid1, ask1, depth1 = self.analyze_order_book_depth(orderbook1, self.depth_threshold)
+            bid2, ask2, depth2 = self.analyze_order_book_depth(orderbook2, self.depth_threshold)
             
-            # Get best bid/ask prices
-            bid1 = orderbook1['bids'][0][0] if orderbook1['bids'] else 0
-            ask1 = orderbook1['asks'][0][0] if orderbook1['asks'] else 0
-            bid2 = orderbook2['bids'][0][0] if orderbook2['bids'] else 0
-            ask2 = orderbook2['asks'][0][0] if orderbook2['asks'] else 0
+            if all([bid1, ask1, bid2, ask2]):
+                # Calculate spreads
+                spread1 = ((bid2 - ask1) / ask1) * 100  # Bitget→MEXC
+                spread2 = ((bid1 - ask2) / ask2) * 100  # MEXC→Bitget
+                
+                # Get verified networks
+                token1 = self.get_token_info(self.exchange1, symbol)
+                token2 = self.get_token_info(self.exchange2, symbol)
+                
+                # Find common networks with matching contracts
+                supported_networks = []
+                if token1 and token2:
+                    networks1 = set(token1['contract_addresses'].keys())
+                    networks2 = set(token2['contract_addresses'].keys())
+                    for network in networks1.intersection(networks2):
+                        if token1['contract_addresses'][network].lower() == token2['contract_addresses'][network].lower():
+                            supported_networks.append(network)
+                
+                volume_24h_1 = ticker1.get('quoteVolume', 0)
+                volume_24h_2 = ticker2.get('quoteVolume', 0)
+                
+                return {
+                    'symbol': symbol,
+                    'bitget_bid': round(bid1, 8),
+                    'bitget_ask': round(ask1, 8),
+                    'mexc_bid': round(bid2, 8),
+                    'mexc_ask': round(ask2, 8),
+                    'spread1': round(spread1, 4),
+                    'spread2': round(spread2, 4),
+                    'best_spread': round(max(spread1, spread2), 4),
+                    'direction': 'Bitget→MEXC' if spread1 > spread2 else 'MEXC→Bitget',
+                    'supported_networks': supported_networks,  # Now properly populated
+                    'bitget_depth': round(depth1, 2),
+                    'mexc_depth': round(depth2, 2),
+                    'bitget_volume_24h': round(volume_24h_1, 2),
+                    'mexc_volume_24h': round(volume_24h_2, 2),
+                    'bitget_liquidity_score': round(liquidity1, 2),
+                    'mexc_liquidity_score': round(liquidity2, 2),
+                    'min_liquidity_score': round(min(liquidity1, liquidity2), 2),
+                    'executable_volume': round(min(depth1, depth2), 2)
+                }
+            return None
             
-            # Calculate spreads
-            spread1 = ((bid2 - ask1) / ask1) * 100  # Bitget → MEXC
-            spread2 = ((bid1 - ask2) / ask2) * 100  # MEXC → Bitget
-            
-            # Calculate executable volume
-            volume1 = sum(bid[1] for bid in orderbook1['bids'][:5])
-            volume2 = sum(ask[1] for ask in orderbook2['asks'][:5])
-            executable_volume = min(volume1, volume2)
-            
-            # Get verified networks for this symbol
-            supported_networks = self.verified_networks.get(symbol, [])
-            
-            return {
-                'symbol': symbol,
-                'bitget_bid': round(bid1, 8),
-                'bitget_ask': round(ask1, 8),
-                'mexc_bid': round(bid2, 8),
-                'mexc_ask': round(ask2, 8),
-                'spread1': round(spread1, 4),
-                'spread2': round(spread2, 4),
-                'best_spread': round(max(spread1, spread2), 4),
-                'direction': 'Bitget→MEXC' if spread1 > spread2 else 'MEXC→Bitget',
-                'supported_networks': supported_networks,
-                'bitget_depth': round(volume1, 2),
-                'mexc_depth': round(volume2, 2),
-                'bitget_volume_24h': round(ticker1.get('quoteVolume', 0), 2),
-                'mexc_volume_24h': round(ticker2.get('quoteVolume', 0), 2),
-                'bitget_liquidity_score': round(liquidity1, 2),
-                'mexc_liquidity_score': round(liquidity2, 2),
-                'min_liquidity_score': round(min(liquidity1, liquidity2), 2),
-                'executable_volume': round(executable_volume, 2)
-            }
         except Exception as e:
             self.logger.error(f"Error calculating arbitrage for {symbol}: {str(e)}")
             return None
@@ -396,7 +405,7 @@ class EnhancedTrading:
             self.logger.error(f"Failed to send notifications: {str(e)}")
 
     def find_arbitrage_opportunities(self) -> None:
-        """Find and display best arbitrage opportunities"""
+        """Find and display arbitrage opportunities with complete network information"""
         try:
             self.logger.info("Starting arbitrage scan...")
             
@@ -413,7 +422,7 @@ class EnhancedTrading:
                     opportunities.append(result)
                 time.sleep(self.exchange1.rateLimit / 1000)
             
-            # Sort by combined factors
+            # Sort opportunities
             opportunities.sort(key=lambda x: (
                 x['best_spread'] * 
                 x['min_liquidity_score'] * 
@@ -422,17 +431,7 @@ class EnhancedTrading:
             
             top_opportunities = opportunities[:5]
             
-            # Save to CSV
-            if top_opportunities:
-                df = pd.DataFrame(top_opportunities)
-                filename = f"arbitrage_opportunities_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                df.to_csv(filename, index=False)
-                self.logger.info(f"Arbitrage opportunities saved to {filename}")
-            
-            # Send notifications
-            asyncio.run(self.notify_opportunities(top_opportunities))
-            
-            # Log results
+            # Display results with complete network information
             self.logger.info("\nBest arbitrage opportunities:")
             for opp in top_opportunities:
                 self.logger.info(
@@ -448,11 +447,12 @@ class EnhancedTrading:
                     f"24h Volume: {opp['mexc_volume_24h']} USDT, "
                     f"Liquidity Score: {opp['mexc_liquidity_score']})\n"
                     f"Executable Volume: {opp['executable_volume']} USDT\n"
-                    f"Supported Networks: {', '.join(opp['supported_networks'])}"
+                    f"Supported Networks: {', '.join(opp['supported_networks'])}\n"
                 )
-            
+                
         except Exception as e:
             self.logger.error(f"Error finding arbitrage opportunities: {str(e)}")
+            self.logger.exception(e)  # Print full stack trace
 
 def main():
     """Main execution function"""
