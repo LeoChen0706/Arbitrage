@@ -64,11 +64,11 @@ class ArbitrageScanner:
             self.logger.error("Telegram setup failed")
 
     def verify_token(self, symbol: str) -> bool:
-        """Verify if tokens are the same by checking contract addresses"""
+        """Verify tokens by matching any contract address"""
         try:
-            # Get currency info from both exchanges
-            base = symbol.split('/')[0]  # Get base currency (e.g., 'BTC' from 'BTC/USDT')
+            base = symbol.split('/')[0]
             
+            # Get currency info
             bitget_currencies = self.bitget.fetch_currencies()
             mexc_currencies = self.mexc.fetch_currencies()
             
@@ -78,25 +78,20 @@ class ArbitrageScanner:
             bitget_info = bitget_currencies[base]
             mexc_info = mexc_currencies[base]
             
-            # Debug log
-            self.logger.info(f"\nVerifying {symbol}")
-            self.logger.info(f"Bitget info: {bitget_info.get('info', {})}")
-            self.logger.info(f"MEXC info: {mexc_info.get('info', {})}")
-            
-            # Get contract addresses from Bitget
-            bitget_contracts = {}
+            # Get all contract addresses from Bitget
+            bitget_contracts = set()
             if 'info' in bitget_info and isinstance(bitget_info['info'], dict):
                 chains = bitget_info['info'].get('chains', [])
-                for chain in chains:
-                    if isinstance(chain, dict):
-                        network = chain.get('chainName', '').upper()
-                        contract = chain.get('contractAddress')
-                        if network and contract:
-                            bitget_contracts[network] = contract.lower()
-                            self.logger.info(f"Found Bitget contract on {network}: {contract}")
+                if isinstance(chains, list):
+                    for chain in chains:
+                        if isinstance(chain, dict):
+                            contract = chain.get('contractAddress', '').lower()
+                            if contract:
+                                bitget_contracts.add(contract)
+                                self.logger.info(f"Found Bitget contract for {symbol}: {contract}")
             
-            # Get contract addresses from MEXC
-            mexc_contracts = {}
+            # Get all contract addresses from MEXC
+            mexc_contracts = set()
             if 'info' in mexc_info:
                 chains_info = mexc_info['info']
                 network_list = chains_info.get('networkList', [])
@@ -105,21 +100,18 @@ class ArbitrageScanner:
                 
                 for chain in network_list:
                     if isinstance(chain, dict):
-                        network = chain.get('network', '').upper()
-                        contract = chain.get('contract') or chain.get('contractAddress')
-                        if network and contract:
-                            mexc_contracts[network] = contract.lower()
-                            self.logger.info(f"Found MEXC contract on {network}: {contract}")
+                        contract = (chain.get('contract', '') or 
+                                  chain.get('contractAddress', '') or 
+                                  chain.get('sameAddress', '')).lower()
+                        if contract:
+                            mexc_contracts.add(contract)
+                            self.logger.info(f"Found MEXC contract for {symbol}: {contract}")
             
-            # Check if we have any matching contracts
-            for network in set(bitget_contracts.keys()) & set(mexc_contracts.keys()):
-                if bitget_contracts[network] == mexc_contracts[network]:
-                    self.logger.info(f"Verified {symbol} on {network} with contract {bitget_contracts[network]}")
-                    return True
-                else:
-                    self.logger.info(f"Contract mismatch for {symbol} on {network}:")
-                    self.logger.info(f"Bitget: {bitget_contracts[network]}")
-                    self.logger.info(f"MEXC: {mexc_contracts[network]}")
+            # Check if any contract matches
+            matching_contracts = bitget_contracts.intersection(mexc_contracts)
+            if matching_contracts:
+                self.logger.info(f"✅ Verified {symbol} with matching contract: {next(iter(matching_contracts))}")
+                return True
             
             return False
             
