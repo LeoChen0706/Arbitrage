@@ -329,80 +329,71 @@ class EnhancedTrading:
             self.logger.error(f"Error getting market data for {symbol}: {str(e)}")
             return None, None, 0
 
-    def calculate_arbitrage(self, symbol: str) -> Dict:
-        """Calculate arbitrage opportunities with complete network information"""
+    def calculate_arbitrage(self, symbol: str) -> Optional[Dict]:
+        """Calculate arbitrage opportunities focusing on price differences"""
         try:
-            # Get market data
-            orderbook1, ticker1, liquidity1 = self.get_market_data(self.exchange1, symbol)
-            orderbook2, ticker2, liquidity2 = self.get_market_data(self.exchange2, symbol)
+            # Get basic market data
+            orderbook1 = self.exchange1.fetch_order_book(symbol)
+            orderbook2 = self.exchange2.fetch_order_book(symbol)
             
-            if not all([orderbook1, orderbook2, ticker1, ticker2]):
+            if not orderbook1 or not orderbook2:
                 return None
                 
-            # Calculate prices and depths
-            bid1, ask1, depth1 = self.analyze_order_book_depth(orderbook1, self.depth_threshold)
-            bid2, ask2, depth2 = self.analyze_order_book_depth(orderbook2, self.depth_threshold)
+            # Get best bid/ask prices and volumes
+            bid1, bid_vol1 = orderbook1['bids'][0] if orderbook1['bids'] else (0, 0)
+            ask1, ask_vol1 = orderbook1['asks'][0] if orderbook1['asks'] else (0, 0)
+            bid2, bid_vol2 = orderbook2['bids'][0] if orderbook2['bids'] else (0, 0)
+            ask2, ask_vol2 = orderbook2['asks'][0] if orderbook2['asks'] else (0, 0)
             
-            if all([bid1, ask1, bid2, ask2]):
-                # Calculate spreads
-                spread1 = ((bid2 - ask1) / ask1) * 100  # Bitget→MEXC
-                spread2 = ((bid1 - ask2) / ask2) * 100  # MEXC→Bitget
+            # Skip if any price is 0
+            if not all([bid1, ask1, bid2, ask2]):
+                return None
                 
-                # Get verified networks
-                token1 = self.get_token_info(self.exchange1, symbol)
-                token2 = self.get_token_info(self.exchange2, symbol)
+            # Calculate spreads
+            spread1 = ((bid2 - ask1) / ask1) * 100  # Bitget→MEXC
+            spread2 = ((bid1 - ask2) / ask2) * 100  # MEXC→Bitget
+            
+            # Calculate executable volume based on direction
+            if spread1 > spread2:
+                # Bitget→MEXC: Buy on Bitget (ask_vol1) and sell on MEXC (bid_vol2)
+                executable_volume = min(ask_vol1, bid_vol2)
+            else:
+                # MEXC→Bitget: Buy on MEXC (ask_vol2) and sell on Bitget (bid_vol1)
+                executable_volume = min(ask_vol2, bid_vol1)
+            
+            # Get verified networks
+            token1 = self.get_token_info(self.exchange1, symbol)
+            token2 = self.get_token_info(self.exchange2, symbol)
+            
+            supported_networks = []
+            if token1 and token2:
+                networks1 = set(token1['contract_addresses'].keys())
+                networks2 = set(token2['contract_addresses'].keys())
+                for network in networks1.intersection(networks2):
+                    if token1['contract_addresses'][network].lower() == token2['contract_addresses'][network].lower():
+                        supported_networks.append(network)
+            
+            best_spread = max(spread1, spread2)
+            if best_spread <= 0:
+                return None
                 
-                # Find common networks with matching contracts
-                supported_networks = []
-                if token1 and token2:
-                    networks1 = set(token1['contract_addresses'].keys())
-                    networks2 = set(token2['contract_addresses'].keys())
-                    for network in networks1.intersection(networks2):
-                        if token1['contract_addresses'][network].lower() == token2['contract_addresses'][network].lower():
-                            supported_networks.append(network)
-                
-                volume_24h_1 = ticker1.get('quoteVolume', 0)
-                volume_24h_2 = ticker2.get('quoteVolume', 0)
-                
-                return {
-                    'symbol': symbol,
-                    'bitget_bid': round(bid1, 8),
-                    'bitget_ask': round(ask1, 8),
-                    'mexc_bid': round(bid2, 8),
-                    'mexc_ask': round(ask2, 8),
-                    'spread1': round(spread1, 4),
-                    'spread2': round(spread2, 4),
-                    'best_spread': round(max(spread1, spread2), 4),
-                    'direction': 'Bitget→MEXC' if spread1 > spread2 else 'MEXC→Bitget',
-                    'supported_networks': supported_networks,  # Now properly populated
-                    'bitget_depth': round(depth1, 2),
-                    'mexc_depth': round(depth2, 2),
-                    'bitget_volume_24h': round(volume_24h_1, 2),
-                    'mexc_volume_24h': round(volume_24h_2, 2),
-                    'bitget_liquidity_score': round(liquidity1, 2),
-                    'mexc_liquidity_score': round(liquidity2, 2),
-                    'min_liquidity_score': round(min(liquidity1, liquidity2), 2),
-                    'executable_volume': round(min(depth1, depth2), 2)
-                }
-            return None
+            return {
+                'symbol': symbol,
+                'bitget_bid': round(bid1, 8),
+                'bitget_ask': round(ask1, 8),
+                'mexc_bid': round(bid2, 8),
+                'mexc_ask': round(ask2, 8),
+                'spread1': round(spread1, 4),
+                'spread2': round(spread2, 4),
+                'best_spread': round(best_spread, 4),
+                'direction': 'Bitget→MEXC' if spread1 > spread2 else 'MEXC→Bitget',
+                'executable_volume': round(executable_volume, 2),
+                'supported_networks': supported_networks
+            }
             
         except Exception as e:
             self.logger.error(f"Error calculating arbitrage for {symbol}: {str(e)}")
             return None
-
-    async def notify_opportunities(self, opportunities: List[Dict]):
-        """Send notifications for arbitrage opportunities"""
-        if not self.notifier or not opportunities:
-            return
-
-        try:
-            for opp in opportunities:
-                if opp['best_spread'] >= self.min_spread_threshold:
-                    message = self.notifier.format_opportunity(opp)
-                    await self.notifier.send_message(message)
-                    await asyncio.sleep(1)  # Avoid rate limiting
-        except Exception as e:
-            self.logger.error(f"Failed to send notifications: {str(e)}")
 
     def find_arbitrage_opportunities(self) -> None:
         """Find top 5 arbitrage opportunities sorted by spread"""
