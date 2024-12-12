@@ -63,11 +63,89 @@ class ArbitrageScanner:
             self.bot = None
             self.logger.error("Telegram setup failed")
 
+    def verify_token(self, symbol: str) -> bool:
+        """Verify if tokens are the same by checking contract addresses"""
+        try:
+            # Get currency info from both exchanges
+            base = symbol.split('/')[0]  # Get base currency (e.g., 'BTC' from 'BTC/USDT')
+            
+            bitget_currencies = self.bitget.fetch_currencies()
+            mexc_currencies = self.mexc.fetch_currencies()
+            
+            if base not in bitget_currencies or base not in mexc_currencies:
+                return False
+            
+            bitget_info = bitget_currencies[base]
+            mexc_info = mexc_currencies[base]
+            
+            # Debug log
+            self.logger.info(f"\nVerifying {symbol}")
+            self.logger.info(f"Bitget info: {bitget_info.get('info', {})}")
+            self.logger.info(f"MEXC info: {mexc_info.get('info', {})}")
+            
+            # Get contract addresses from Bitget
+            bitget_contracts = {}
+            if 'info' in bitget_info and isinstance(bitget_info['info'], dict):
+                chains = bitget_info['info'].get('chains', [])
+                for chain in chains:
+                    if isinstance(chain, dict):
+                        network = chain.get('chainName', '').upper()
+                        contract = chain.get('contractAddress')
+                        if network and contract:
+                            bitget_contracts[network] = contract.lower()
+                            self.logger.info(f"Found Bitget contract on {network}: {contract}")
+            
+            # Get contract addresses from MEXC
+            mexc_contracts = {}
+            if 'info' in mexc_info:
+                chains_info = mexc_info['info']
+                network_list = chains_info.get('networkList', [])
+                if not network_list and isinstance(chains_info, dict):
+                    network_list = [chains_info]
+                
+                for chain in network_list:
+                    if isinstance(chain, dict):
+                        network = chain.get('network', '').upper()
+                        contract = chain.get('contract') or chain.get('contractAddress')
+                        if network and contract:
+                            mexc_contracts[network] = contract.lower()
+                            self.logger.info(f"Found MEXC contract on {network}: {contract}")
+            
+            # Check if we have any matching contracts
+            for network in set(bitget_contracts.keys()) & set(mexc_contracts.keys()):
+                if bitget_contracts[network] == mexc_contracts[network]:
+                    self.logger.info(f"Verified {symbol} on {network} with contract {bitget_contracts[network]}")
+                    return True
+                else:
+                    self.logger.info(f"Contract mismatch for {symbol} on {network}:")
+                    self.logger.info(f"Bitget: {bitget_contracts[network]}")
+                    self.logger.info(f"MEXC: {mexc_contracts[network]}")
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Error verifying {symbol}: {str(e)}")
+            return False
+
     def get_common_pairs(self):
+        """Get common pairs with verified contract addresses"""
         # Get USDT pairs from both exchanges
         bitget_pairs = set(s for s in self.bitget.symbols if s.endswith('/USDT'))
         mexc_pairs = set(s for s in self.mexc.symbols if s.endswith('/USDT'))
-        return list(bitget_pairs.intersection(mexc_pairs))
+        common_pairs = list(bitget_pairs.intersection(mexc_pairs))
+        
+        self.logger.info(f"Found {len(common_pairs)} pairs with same name")
+        
+        # Verify each pair
+        verified_pairs = []
+        for pair in common_pairs:
+            if self.verify_token(pair):
+                verified_pairs.append(pair)
+                self.logger.info(f"Verified {pair}")
+            time.sleep(0.1)  # Rate limiting
+        
+        self.logger.info(f"Found {len(verified_pairs)} verified pairs")
+        return verified_pairs
 
     def calculate_arbitrage(self, symbol):
         try:
